@@ -48,31 +48,56 @@ def generate_content(client, messages, verbose):
     model_name = "gemini-2.0-flash-001"
     function_responses = []
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions], system_instruction=SYSTEM_PROMPT
-        ),
-    )
-    if response.usage_metadata is None:
-        raise RuntimeError("Usage metadata is missing in the response.")
+    for i in range(20):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=messages,
+                config=types.GenerateContentConfig(
+                    tools=[available_functions], system_instruction=SYSTEM_PROMPT
+                ),
+            )
+            if response.usage_metadata is None:
+                raise RuntimeError(
+                    "Gemini response is malformed: missing usage metadata."
+                )
 
-    if response.function_calls:
-        print("Function Calls:")
-        for fc in response.function_calls:
-            print(f"Function Name: {fc.name}\nArguments: {fc.args}\n")
-            func_res = call_function(fc, verbose)
-            if not func_res.parts[0].function_response.response:
-                raise RuntimeError("Function response is missing.")
-            function_responses.append(func_res.parts[0].function_response.response)
+            for candidate in response.candidates:
+                messages.append(candidate.content)
+
+            if not response.function_calls and response.text:
+                print(response.text)
+                break
+
+            if response.function_calls:
+                print("Function Calls:")
+                for fc in response.function_calls:
+                    print(f"Function Name: {fc.name}\nArguments: {fc.args}\n")
+                    func_res = call_function(fc, verbose)
+                    if not func_res.parts[0].function_response.response:
+                        raise RuntimeError("Function response is missing.")
+                    function_responses.append(
+                        func_res.parts[0].function_response.response
+                    )
+                    if verbose:
+                        print(f"-> {func_res.parts[0].function_response.response}")
+
+                func_res_messsage = types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(text=f"Function responses: {function_responses}")
+                    ],
+                )
+                messages.append(func_res_messsage)
+
             if verbose:
-                print(f"-> {func_res.parts[0].function_response.response}")
-    else:
-        print(response.text)
-    if verbose:
-        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-        print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
+                print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+                print(
+                    f"Response tokens: {response.usage_metadata.candidates_token_count}"
+                )
+        except Exception as e:
+            print(f"Error during content generation: {e}")
+            break
 
 
 def call_function(function_call_part, verbose=False):
