@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from prompts import SYSTEM_PROMPT
-from functions.get_files_info import schema_get_files_info
-from functions.get_file_content import schema_get_file_content
-from functions.write_file import schema_write_file
-from functions.run_python_file import schema_run_python_file
+from functions.get_files_info import schema_get_files_info, get_files_info
+from functions.get_file_content import schema_get_file_content, get_file_content
+from functions.write_file import schema_write_file, write_file
+from functions.run_python_file import schema_run_python_file, run_python_file
 
 
 def main():
@@ -46,6 +46,7 @@ def generate_content(client, messages, verbose):
     )
 
     model_name = "gemini-2.0-flash-001"
+    function_responses = []
 
     response = client.models.generate_content(
         model=model_name,
@@ -61,11 +62,55 @@ def generate_content(client, messages, verbose):
         print("Function Calls:")
         for fc in response.function_calls:
             print(f"Function Name: {fc.name}\nArguments: {fc.args}\n")
+            func_res = call_function(fc, verbose)
+            if not func_res.parts[0].function_response.response:
+                raise RuntimeError("Function response is missing.")
+            function_responses.append(func_res.parts[0].function_response.response)
+            if verbose:
+                print(f"-> {func_res.parts[0].function_response.response}")
     else:
         print(response.text)
     if verbose:
         print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
         print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
+
+
+def call_function(function_call_part, verbose=False):
+    if verbose:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+    else:
+        print(f"Calling function: {function_call_part.name}")
+
+    function_result = None
+
+    if function_call_part.name == "get_files_info":
+        function_result = get_files_info("./calculator", **function_call_part.args)
+    elif function_call_part.name == "get_file_content":
+        function_result = get_file_content("./calculator", **function_call_part.args)
+    elif function_call_part.name == "write_file":
+        function_result = write_file("./calculator", **function_call_part.args)
+    elif function_call_part.name == "run_python_file":
+        function_result = run_python_file("./calculator", **function_call_part.args)
+    else:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"error": f"Unknown function: {function_call_part.name}"},
+                )
+            ],
+        )
+
+    return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=function_call_part.name,
+                response={"result": function_result},
+            )
+        ],
+    )
 
 
 if __name__ == "__main__":
