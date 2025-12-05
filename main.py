@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 from dotenv import load_dotenv
 from google import genai
@@ -95,6 +96,11 @@ def generate_content(client, messages, verbose):
                 print(
                     f"Response tokens: {response.usage_metadata.candidates_token_count}"
                 )
+
+            if i == 19:
+                print("Maximum iterations reached. Ending generation.")
+                sys.exit(1)
+
         except Exception as e:
             print(f"Error during content generation: {e}")
             break
